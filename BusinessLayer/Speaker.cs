@@ -12,7 +12,7 @@ namespace BusinessLayer
 		public string FirstName { get; set; }
 		public string LastName { get; set; }
 		public string Email { get; set; }
-		public int? Exp { get; set; }
+		public int? YearsExperience { get; set; }
 		public bool HasBlog { get; set; }
 		public string BlogURL { get; set; }
 		public WebBrowser Browser { get; set; }
@@ -21,148 +21,78 @@ namespace BusinessLayer
 		public int RegistrationFee { get; set; }
 		public List<BusinessLayer.Session> Sessions { get; set; }
 
-		/// <summary>
-		/// Register a speaker
-		/// </summary>
-		/// <returns>speakerID</returns>
-		public int? Register(IRepository repository)
+
+        public void ValidateData()
+        {
+            if (string.IsNullOrEmpty(FirstName)) throw new ArgumentNullException("First Name is required.");
+            if (string.IsNullOrEmpty(LastName)) throw new ArgumentNullException("Last Name is required.");
+            if (string.IsNullOrEmpty(Email)) throw new ArgumentNullException("Email is required.");
+            if (Sessions.Count() == 0) throw new ArgumentException("Can't register speaker with no sessions to present.");
+        }
+
+        public void ValidateRegistration()
+        {
+            ValidateData();
+
+            bool speakerAppearsQualified = CheckSpecialRequirements() || !ObviousRedFlags();
+            if (!speakerAppearsQualified)
+            {
+                throw new SpeakerDoesntMeetRequirementsException("This speaker doesn't meet our standards.");
+            }
+
+            ApproveSessions();
+        }
+
+        private bool SessionIsAboutOldTechnology(Session session)
+        {
+            string[] oldTechnologies = new string[] { "Cobol", "Punch Cards", "Commodore", "VBScript" };
+            foreach (var oldTech in oldTechnologies)
+            {
+                if (session.Title.Contains(oldTech) || session.Description.Contains(oldTech)) return true;
+            }
+            return false;
+        }
+
+
+        private void ApproveSessions()
+        {
+            foreach (var session in Sessions)
+            {
+                session.Approved = !SessionIsAboutOldTechnology(session);
+            }
+            bool noSessionsApproved = Sessions.Where(s => s.Approved).Count() == 0;
+            if (noSessionsApproved) throw new NoSessionsApprovedException("No sessions approved");
+        }
+
+
+        private bool ObviousRedFlags()
+        {
+            //need to get just the domain from the email
+            string emailDomain = Email.Split('@').Last();
+            var ancientEmailDomains = new List<string>() { "aol.com", "hotmail.com", "prodigy.com", "compuserve.com" };
+            return (ancientEmailDomains.Contains(emailDomain) || ((Browser.Name == WebBrowser.BrowserName.InternetExplorer && Browser.MajorVersion < 9)));
+        }
+
+        private bool CheckSpecialRequirements()
+        {
+            if (YearsExperience > 10) return true;
+            if (HasBlog) return true;
+            if (Certifications.Count() > 3) return true;
+            var preferredEmployers = new List<string>() { "Microsoft", "Google", "Fog Creek Software", "37Signals" };
+            if (preferredEmployers.Contains(Employer)) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Register a speaker
+        /// </summary>
+        /// <returns>speakerID</returns>
+        public int? Register(IRepository repository)
 		{
-			//lets init some vars
 			int? speakerId = null;
-			bool good = false;
-			bool appr = false;
-			//var nt = new List<string> {"MVC4", "Node.js", "CouchDB", "KendoUI", "Dapper", "Angular"};
-			var ot = new List<string>() { "Cobol", "Punch Cards", "Commodore", "VBScript" };
-
-			//DEFECT #5274 DA 12/10/2012
-			//We weren't filtering out the prodigy domain so I added it.
-			var domains = new List<string>() { "aol.com", "hotmail.com", "prodigy.com", "CompuServe.com" };
-
-			if (!string.IsNullOrWhiteSpace(FirstName))
-			{
-				if (!string.IsNullOrWhiteSpace(LastName))
-				{
-					if (!string.IsNullOrWhiteSpace(Email))
-					{
-						//put list of employers in array
-						var emps = new List<string>() { "Microsoft", "Google", "Fog Creek Software", "37Signals" };
-
-						//DFCT #838 Jimmy 
-						//We're now requiring 3 certifications so I changed the hard coded number. Boy, programming is hard.
-						good = ((Exp > 10 || HasBlog || Certifications.Count() > 3 || emps.Contains(Employer)));
-
-						if (!good)
-						{
-							//need to get just the domain from the email
-							string emailDomain = Email.Split('@').Last();
-
-							if (!domains.Contains(emailDomain) && (!(Browser.Name == WebBrowser.BrowserName.InternetExplorer && Browser.MajorVersion < 9)))
-							{
-								good = true;
-							}
-						}
-
-						if (good)
-						{
-							//DEFECT #5013 CO 1/12/2012
-							//We weren't requiring at least one session
-							if (Sessions.Count() != 0)
-							{
-								foreach (var session in Sessions)
-								{
-									//foreach (var tech in nt)
-									//{
-									//    if (session.Title.Contains(tech))
-									//    {
-									//        session.Approved = true;
-									//        break;
-									//    }
-									//}
-
-									foreach (var tech in ot)
-									{
-										if (session.Title.Contains(tech) || session.Description.Contains(tech))
-										{
-											session.Approved = false;
-											break;
-										}
-										else
-										{
-											session.Approved = true;
-											appr = true;
-										}
-									}
-								}
-							}
-							else
-							{
-								throw new ArgumentException("Can't register speaker with no sessions to present.");
-							}
-
-							if (appr)
-							{
-								//if we got this far, the speaker is approved
-								//let's go ahead and register him/her now.
-								//First, let's calculate the registration fee. 
-								//More experienced speakers pay a lower fee.
-								if (Exp <= 1)
-								{
-									RegistrationFee = 500;
-								}
-								else if (Exp >= 2 && Exp <= 3)
-								{
-									RegistrationFee = 250;
-								}
-								else if (Exp >= 4 && Exp <= 5)
-								{
-									RegistrationFee = 100;
-								}
-								else if (Exp >= 6 && Exp <= 9)
-								{
-									RegistrationFee = 50;
-								}
-								else
-								{
-									RegistrationFee = 0;
-								}
-
-								//Now, save the speaker and sessions to the db.
-								try
-								{
-									speakerId = repository.SaveSpeaker(this);
-								}
-								catch (Exception e)
-								{
-									//in case the db call fails 
-								}
-							}
-							else
-							{
-								throw new NoSessionsApprovedException("No sessions approved.");
-							}
-						}
-						else
-						{
-							throw new SpeakerDoesntMeetRequirementsException("Speaker doesn't meet our abitrary and capricious standards.");
-						}
-					}
-					else
-					{
-						throw new ArgumentNullException("Email is required.");
-					}
-				}
-				else
-				{
-					throw new ArgumentNullException("Last name is required.");
-				}
-			}
-			else
-			{
-				throw new ArgumentNullException("First Name is required");
-			}
-
-			//if we got this far, the speaker is registered.
-			return speakerId;
+            ValidateRegistration();
+            speakerId = repository.SaveSpeaker(this);
+            return speakerId;            			
 		}
 
 		#region Custom Exceptions
